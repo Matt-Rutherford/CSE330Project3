@@ -1,11 +1,11 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/moduleparam.h>
-#include <linux/kthread.h>
+//#include <linux/kthread.h>
 #include <linux/sched.h>
 #include <linux/sched/signal.h>
-#include <linux/semaphore.h>
-#include <linux/mutex.h>
+//#include <linux/semaphore.h> probably won't need these two
+//#include <linux/mutex.h>
 #include <linux/slab.h>
 #include <linux/mm_types.h>
 
