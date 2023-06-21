@@ -18,8 +18,6 @@ struct vm_area_struct *mmap;
 
 int producer_consumer_init(void){
 
-    //task = find_task_by_pid(pid);//????? instead of for each process?
-
     for_each_process(task){
         if (pid == task->pid){
             mmap = task->mm->mmap; //list of vmas
