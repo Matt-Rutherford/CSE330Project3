@@ -50,16 +50,15 @@ int ptep_test_and_clear_young(struct vm_area_struct *vma, unsigned long addr, pt
 }
 
 // -----------------------------------------------------------------------------------
-void TraversePageTable(bool mode) {
-    if (mode == true){
-        printk("in true");
-    }
+void TraversePageTable(void) {
+
     vmas = task->mm->mmap; // points to virtual memory area space
 	//rss = task->mm->hiwater_rss;
     while(vmas) { // traverse the virtual address spaces
-       
+       //PAGE_SIZE = 4096
+        
         for(x = vmas->vm_start; x <= (vmas->vm_end-PAGE_SIZE); x+= PAGE_SIZE) { // traverse the pages in task's virtual memory area
-
+            mmap_read_lock(task->mm); // lock the page to read it
             pgd = pgd_offset(task->mm, x); // get pgd from mm and the page address
             if (pgd_none(*pgd) || pgd_bad(*pgd)){ // check if pgd is bad or does not exist
                 return;}
@@ -73,19 +72,21 @@ void TraversePageTable(bool mode) {
             if (pmd_none(*pmd) || pmd_bad(*pmd)){ // check if pmd is bad or does not exist
                 return;}
             ptep = pte_offset_map(pmd, x); // get pte from pmd and the page address
+
             if (!ptep){
                 return;} // check if pte does not exist
 
-            //pte = *ptep; //unnecessary?
+            if (pte_present(*ptep)){ //not sure if this is right
+                    rss++;
+                    if(ptep_test_and_clear_young(vmas, x, ptep)){
+                        wss++;
+                    }
+            } else {
+                swap++;
+            }
+            pte_unmap(ptep);
+            mmap_read_unlock(task->mm); // unlock page from read lock	
 
-			mmap_read_lock(task->mm); // lock the page to read it
-        
-		    if(pte_young(*ptep) ) {
-                wss += ptep_test_and_clear_young(vmas, x, ptep);
-                //wss = wss + 1;
-            }		
-
-			mmap_read_unlock(task->mm); // unlock page from read lock	
 		}
 		
 		vmas = vmas->vm_next; // get next virtual address space 
@@ -98,10 +99,6 @@ void TraversePageTable(bool mode) {
 enum hrtimer_restart timer_restart_callback(struct hrtimer *timer) { 
     //uint64_t rawtime;
     ktime_t currtime , interval;
-    
-	task = pid_task(find_vpid(pid),PIDTYPE_PID);
-	TraversePageTable(false);
-	printk("PID [%d]: RSS = [%lu] KB, SWAP = [] KB, WSS = [%lu] KB", pid, rss, wss*4);
 
     page_walk_counter++;
     if (page_walk_counter >= 6) {
@@ -111,6 +108,10 @@ enum hrtimer_restart timer_restart_callback(struct hrtimer *timer) {
     currtime = ktime_get();
     interval = ktime_set(0, timer_interval_ns);
     hrtimer_forward(timer, currtime, interval);
+
+    task = pid_task(find_vpid(pid),PIDTYPE_PID);
+	TraversePageTable();
+	printk("PID [%d]: RSS = [%lu] KB, SWAP = [%lu] KB, WSS = [%lu] KB", pid, rss*4, swap, wss*4);
 
     return HRTIMER_RESTART; // used to invoke the HRT periodically
 }
@@ -130,7 +131,7 @@ int producer_consumer_init(void) {
 }
 // -----------------------------------------------------------------------------------
 void producer_consumer_exit(void) {
-    printk("exit");
+    //printk("exit");
     int ret;
     ret = hrtimer_cancel(&hr_timer);
     if(ret) {
