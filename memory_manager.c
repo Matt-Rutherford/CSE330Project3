@@ -33,33 +33,55 @@ pmd_t* pmd;
 pte_t* ptep, pte;
 
 unsigned long wss = 0; // working set size
+unsigned long rss = 0;
 unsigned long x;       // addr
 
 // -----------------------------------------------------------------------------------
-void TraversePageTable(bool mode) {
-
-    vmas = task->mm->mmap; // points to virtual memory area space
+//test and clear the accessed bit of the given pte_t entry
+int ptep_test_and_clear_young(struct vm_area_struct *vma, unsigned long addr, pte_t *ptep) {
+	int ret = 0;
 	
+	if (pte_young(*ptep))
+		ret = test_and_clear_bit(_PAGE_BIT_ACCESSED, (unsigned long *) &ptep->pte);
+	
+	return ret;
+}
+
+// -----------------------------------------------------------------------------------
+void TraversePageTable(bool mode) {
+    if (mode == true){
+        printk("in true");
+    }
+    vmas = task->mm->mmap; // points to virtual memory area space
+	//rss = task->mm->hiwater_rss;
     while(vmas) { // traverse the virtual address spaces
        
         for(x = vmas->vm_start; x <= (vmas->vm_end-PAGE_SIZE); x+= PAGE_SIZE) { // traverse the pages in task's virtual memory area
-            pgd = pgd_offset(task->mm,x);
-            p4d = p4d_offset(pgd,x);
-            pud = pud_offset(p4d,x);
-            pmd = pmd_offset(pud,x);
-            ptep = pte_offset_map(pmd,x);
-           
-			mmap_read_lock(task->mm); // lock the page to read it
 
-			if(mode == true ) { // clear accessed bit
-				pte_mkold(*ptep);
-			} else { // count the WSS
-				if( pte_young(*ptep) ) {
-					wss = wss + 1;
-				}
-			}
-			
-			//ptep_test_and clear_youg(vma, x, ptep);
+            pgd = pgd_offset(task->mm, x); // get pgd from mm and the page address
+            if (pgd_none(*pgd) || pgd_bad(*pgd)){ // check if pgd is bad or does not exist
+                return;}
+            p4d = p4d_offset(pgd, x); // get p4d from from pgd and the page address
+            if (p4d_none(*p4d) || p4d_bad(*p4d)){ // check if p4d is bad or does not exist
+                return;}
+            pud = pud_offset(p4d, x); // get pud from from p4d and the page address
+            if (pud_none(*pud) || pud_bad(*pud)){ // check if pud is bad or does not exist
+                return;}
+            pmd = pmd_offset(pud, x); // get pmd from from pud and the page address
+            if (pmd_none(*pmd) || pmd_bad(*pmd)){ // check if pmd is bad or does not exist
+                return;}
+            ptep = pte_offset_map(pmd, x); // get pte from pmd and the page address
+            if (!ptep){
+                return;} // check if pte does not exist
+
+            //pte = *ptep; //unnecessary?
+
+			mmap_read_lock(task->mm); // lock the page to read it
+        
+		    if(pte_young(*ptep) ) {
+                rss += ptep_test_and_clear_young(vmas, x, ptep);
+                wss = wss + 1;
+            }		
 
 			mmap_read_unlock(task->mm); // unlock page from read lock	
 		}
@@ -68,35 +90,20 @@ void TraversePageTable(bool mode) {
 	}
 }
 
-// -----------------------------------------------------------------------------------
-//test and clear the accessed bit of the given pte_t entry
-int ptep_test_and_clear_young(struct vm_area_struct *vma, unsigned long addr, pte_t *ptep) {
-	int ret = 0;
-	
-	if (pte_young(*ptep))
-		ret = test_and_clear_bit(_PAGE_BIT_ACCESSED, (unsigned long *) &ptep-pte);
-	
-	return ret;
-}
+
 // -----------------------------------------------------------------------------------
 // called after 10 sec
 enum hrtimer_restart timer_restart_callback(struct hrtimer *timer) { 
+    //uint64_t rawtime;
     ktime_t currtime , interval;
+    
+	task = pid_task(find_vpid(pid),PIDTYPE_PID);
+	TraversePageTable(false);
+	printk("PID [%d]: RSS = [%lu] KB, SWAP = [] KB, WSS = [%lu] KB", pid, rss, wss*4);
+
     currtime = ktime_get();
     interval = ktime_set(0, timer_interval_ns);
     hrtimer_forward(timer, currtime, interval);
-
-	for_each_process(task) {
-        if(task->pid == pid) {
-            goto traverse; // escape loop and traverse the 5-level page table
-        }
-    }
-	
-	traverse:
-		TraversePageTable(false);
-		printk("[%d]:[%lu]", pid, wss);
-		wss = 0;
-		TraversePageTable(true);
 
     return HRTIMER_NORESTART; // used to invoke the HRT periodically
 }
@@ -116,6 +123,7 @@ int producer_consumer_init(void) {
 }
 // -----------------------------------------------------------------------------------
 void producer_consumer_exit(void) {
+    printk("exit");
     int ret;
     ret = hrtimer_cancel(&hr_timer);
     if(ret) {
