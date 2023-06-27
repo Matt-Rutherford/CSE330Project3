@@ -30,10 +30,10 @@ pgd_t* pgd;
 p4d_t* p4d;
 pud_t* pud;
 pmd_t* pmd;
-pte_t* ptep;
+pte_t* ptep, pte;
 
 unsigned long wss = 0; // working set size
-int x;
+unsigned long x;       // addr
 
 // -----------------------------------------------------------------------------------
 void TraversePageTable(bool mode) {
@@ -58,6 +58,8 @@ void TraversePageTable(bool mode) {
 					wss = wss + 1;
 				}
 			}
+			
+			//ptep_test_and clear_youg(vma, x, ptep);
 
 			mmap_read_unlock(task->mm); // unlock page from read lock	
 		}
@@ -66,6 +68,16 @@ void TraversePageTable(bool mode) {
 	}
 }
 
+// -----------------------------------------------------------------------------------
+//test and clear the accessed bit of the given pte_t entry
+int ptep_test_and_clear_young(struct vm_area_struct *vma, unsigned long addr, pte_t *ptep) {
+	int ret = 0;
+	
+	if (pte_young(*ptep))
+		ret = test_and_clear_bit(_PAGE_BIT_ACCESSED, (unsigned long *) &ptep-pte);
+	
+	return ret;
+}
 // -----------------------------------------------------------------------------------
 // called after 10 sec
 enum hrtimer_restart timer_restart_callback(struct hrtimer *timer) { 
@@ -86,12 +98,14 @@ enum hrtimer_restart timer_restart_callback(struct hrtimer *timer) {
 		wss = 0;
 		TraversePageTable(true);
 
-    return HRTIMER_RESTART; // used to invoke the HRT periodically
+    return HRTIMER_NORESTART; // used to invoke the HRT periodically
 }
 
 // -----------------------------------------------------------------------------------
 int producer_consumer_init(void) { 
+	printk("Init start");
     ktime_t ktime;
+	
 	ktime = ktime_set(0, timer_interval_ns); 
     hrtimer_init(&hr_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
     hr_timer.function = &timer_restart_callback;
