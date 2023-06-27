@@ -32,8 +32,10 @@ pud_t* pud;
 pmd_t* pmd;
 pte_t* ptep, pte;
 
+unsigned int page_walk_counter;
 unsigned long wss = 0; // working set size
 unsigned long rss = 0;
+unsigned long swap = 0;
 unsigned long x;       // addr
 
 // -----------------------------------------------------------------------------------
@@ -79,8 +81,8 @@ void TraversePageTable(bool mode) {
 			mmap_read_lock(task->mm); // lock the page to read it
         
 		    if(pte_young(*ptep) ) {
-                rss += ptep_test_and_clear_young(vmas, x, ptep);
-                wss = wss + 1;
+                wss += ptep_test_and_clear_young(vmas, x, ptep);
+                //wss = wss + 1;
             }		
 
 			mmap_read_unlock(task->mm); // unlock page from read lock	
@@ -101,19 +103,24 @@ enum hrtimer_restart timer_restart_callback(struct hrtimer *timer) {
 	TraversePageTable(false);
 	printk("PID [%d]: RSS = [%lu] KB, SWAP = [] KB, WSS = [%lu] KB", pid, rss, wss*4);
 
+    page_walk_counter++;
+    if (page_walk_counter >= 6) {
+        return HRTIMER_NORESTART;
+    }
+
     currtime = ktime_get();
     interval = ktime_set(0, timer_interval_ns);
     hrtimer_forward(timer, currtime, interval);
 
-    return HRTIMER_NORESTART; // used to invoke the HRT periodically
+    return HRTIMER_RESTART; // used to invoke the HRT periodically
 }
 
 // -----------------------------------------------------------------------------------
 int producer_consumer_init(void) { 
 	printk("Init start");
     ktime_t ktime;
-	
-	ktime = ktime_set(0, timer_interval_ns); 
+
+    ktime = ktime_set(0, timer_interval_ns);
     hrtimer_init(&hr_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
     hr_timer.function = &timer_restart_callback;
     hrtimer_start(&hr_timer, ktime, HRTIMER_MODE_REL);
