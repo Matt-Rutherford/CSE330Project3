@@ -58,32 +58,40 @@ void TraversePageTable(void) {
        //PAGE_SIZE = 4096
         
         for(x = vmas->vm_start; x <= (vmas->vm_end-PAGE_SIZE); x+= PAGE_SIZE) { // traverse the pages in task's virtual memory area
+		
             mmap_read_lock(task->mm); // lock the page to read it
+			
             pgd = pgd_offset(task->mm, x); // get pgd from mm and the page address
             if (pgd_none(*pgd) || pgd_bad(*pgd)){ // check if pgd is bad or does not exist
                 return;}
+				
             p4d = p4d_offset(pgd, x); // get p4d from from pgd and the page address
             if (p4d_none(*p4d) || p4d_bad(*p4d)){ // check if p4d is bad or does not exist
                 return;}
+				
             pud = pud_offset(p4d, x); // get pud from from p4d and the page address
             if (pud_none(*pud) || pud_bad(*pud)){ // check if pud is bad or does not exist
                 return;}
+				
             pmd = pmd_offset(pud, x); // get pmd from from pud and the page address
             if (pmd_none(*pmd) || pmd_bad(*pmd)){ // check if pmd is bad or does not exist
                 return;}
+				
             ptep = pte_offset_map(pmd, x); // get pte from pmd and the page address
 
             if (!ptep){
                 return;} // check if pte does not exist
+	    pte = *ptep;
 
             if (pte_present(*ptep)){ //not sure if this is right
-                    rss++;
+                    wss = wss + 1;
                     if(ptep_test_and_clear_young(vmas, x, ptep)){
-                        wss++;
+                       rss++;
                     }
-            } else {
+	    } else {
                 swap++;
             }
+			
             pte_unmap(ptep);
             mmap_read_unlock(task->mm); // unlock page from read lock	
 
@@ -118,9 +126,9 @@ enum hrtimer_restart timer_restart_callback(struct hrtimer *timer) {
 
 // -----------------------------------------------------------------------------------
 int producer_consumer_init(void) { 
-	printk("Init start");
     ktime_t ktime;
 
+    printk("Init start");
     ktime = ktime_set(0, timer_interval_ns);
     hrtimer_init(&hr_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
     hr_timer.function = &timer_restart_callback;
